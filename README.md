@@ -14,7 +14,7 @@ _Attention: You will need [Python 3.6](https://www.python.org/downloads/) or gre
 
 ```sh
 $ git clone https://github.com/PGRjoystick/zoom-recording-downloader.git
-$ cd zoom-batchdl
+$ cd zoom-recording-downloader
 $ pip3 install -r requirements.txt
 ```
 ## Running ##
