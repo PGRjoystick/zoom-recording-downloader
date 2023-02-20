@@ -14,7 +14,14 @@
 # Import TQDM progress bar library
 from tqdm import tqdm
 # Import app environment variables
-from appenv import JWT_TOKEN
+from akun import DOWNLOAD_DIRECTORY
+from akun import RECORDING_START_YEAR
+from akun import RECORDING_START_MONTH
+from akun import RECORDING_START_DAY
+from akun import RECORDING_END_DATE
+from akun import JWT_TOKEN
+# Path Validation Patch
+from pathvalidate import sanitize_filepath, sanitize_filename
 from sys import exit
 from signal import signal, SIGINT
 from dateutil.parser import parse
@@ -29,19 +36,12 @@ import sys
 import os
 APP_VERSION = "2.1"
 
-# JWT_TOKEN now lives in appenv.py
+# JWT_TOKEN now lives in akun.py
 ACCESS_TOKEN = 'Bearer ' + JWT_TOKEN
 AUTHORIZATION_HEADER = {'Authorization': ACCESS_TOKEN}
 
 API_ENDPOINT_USER_LIST = 'https://api.zoom.us/v2/users'
 
-# Start date now split into YEAR, MONTH, and DAY variables (Within 6 month range)
-RECORDING_START_YEAR = 2022
-RECORDING_START_MONTH = 1
-RECORDING_START_DAY = 1
-RECORDING_END_DATE = date.today()
-# RECORDING_END_DATE = date(2021, 8, 1)
-DOWNLOAD_DIRECTORY = 'downloads'
 COMPLETED_MEETING_IDS_LOG = 'completed-downloads.log'
 COMPLETED_MEETING_IDS = set()
 
@@ -79,7 +79,7 @@ def get_user_ids():
                             headers=AUTHORIZATION_HEADER)
     if not response.ok:
         print(response)
-        print('Is your JWT still valid?')
+        print('Token JWT salah atau sudah tidak berlaku, silahkan ambil Token JWT yang baru')
         exit(1)
     page_data = response.json()
     total_pages = int(page_data['page_count']) + 1
@@ -102,8 +102,13 @@ def get_user_ids():
 def format_filename(recording, file_type, file_extension, recording_type, recording_id):
     uuid = recording['uuid']
     topic = recording['topic'].replace('/', '&')
+    topic = recording['topic'].replace(',', ' ')
+    # patch
+    # topic = re.sub('[\W_]+', ' ', topic)
     rec_type = recording_type.replace("_", " ").title()
     meeting_time = parse(recording['start_time']).strftime('%Y.%m.%d - %I.%M %p UTC')
+    # patch
+    # truncated_file_name = file_name[0:200]
     return '{} - {} - {}.{}'.format(
         meeting_time, topic+" - "+rec_type, recording_id, file_extension.lower()),'{} - {}'.format(topic, meeting_time)
 
@@ -158,6 +163,10 @@ def list_recordings(email):
 
 def download_recording(download_url, email, filename, foldername):
     dl_dir = os.sep.join([DOWNLOAD_DIRECTORY, foldername])
+    # Path Validation Patch
+    dl_dir = sanitize_filepath(dl_dir, platform="auto")
+    filename = sanitize_filename(filename, platform="auto")
+    
     full_filename = os.sep.join([dl_dir, filename])
     os.makedirs(dl_dir, exist_ok=True)
     response = requests.get(download_url, stream=True)
@@ -188,14 +197,14 @@ def load_completed_meeting_ids():
             for line in fd:
                 COMPLETED_MEETING_IDS.add(line.strip())
     except FileNotFoundError:
-        print("Log file not found. Creating new log file: ",
+        print("File log tidak ditemukan. Membuat file log baru: ",
               COMPLETED_MEETING_IDS_LOG)
         print()
 
 
 def handler(signal_received, frame):
     # handle cleanup here
-    print(color.RED + "\nSIGINT or CTRL-C detected. Exiting gracefully." + color.END)
+    print(color.RED + "\nSinyal SIGINT diterima atau tombil CTRL-C Dipencet. Keluar Program dengan paksa." + color.END)
     exit(0)
 
 
@@ -228,28 +237,28 @@ def main():
 
                            Zoom Recording Downloader
 
-                                  Version {}
+                                  Versi {}
 '''.format(APP_VERSION))
 
     load_completed_meeting_ids()
 
-    print(color.BOLD + "Getting user accounts..." + color.END)
+    print(color.BOLD + "Mendapatkan info akun..." + color.END)
     users = get_user_ids()
 
     for email, user_id, first_name, last_name in users:
-        print(color.BOLD + "\nGetting recording list for {} {} ({})".format(first_name,
+        print(color.BOLD + "\nMendapatkan daftar rekaman zoom pada {} {} ({})".format(first_name,
                                                                             last_name, email) + color.END)
         # wait n.n seconds so we don't breach the API rate limit
         # time.sleep(0.1)
         recordings = list_recordings(user_id)
         total_count = len(recordings)
-        print("==> Found {} recordings".format(total_count))
+        print("==> Ditemukan {} rekaman".format(total_count))
 
         for index, recording in enumerate(recordings):
             success = False
             meeting_id = recording['uuid']
             if meeting_id in COMPLETED_MEETING_IDS:
-                print("==> Skipping already downloaded meeting: {}".format(meeting_id))
+                print("==> Skip video rekaman yang telah di download: {}".format(meeting_id))
                 continue
 
             downloads = get_downloads(recording)
@@ -259,12 +268,12 @@ def main():
                         recording, file_type, file_extension, recording_type, recording_id)
                     # truncate URL to 64 characters
                     truncated_url = download_url[0:64] + "..."
-                    print("==> Downloading ({} of {}) as {}: {}: {}".format(
+                    print("==> Mendownload ({} dari {}) bagian {}: {}: {}".format(
                         index+1, total_count, recording_type, recording_id, truncated_url))
                     success |= download_recording(download_url, email, filename, foldername)
                     #success = True
                 else:
-                    print("### Incomplete Recording ({} of {}) for {}".format(index+1, total_count, recording_id))
+                    print("### Rekaman yang belum selesai ({} dari {}) pada {}".format(index+1, total_count, recording_id))
                     success = False         
 
             if success:
@@ -275,9 +284,9 @@ def main():
                     log.write('\n')
                     log.flush()
 
-    print(color.BOLD + color.GREEN + "\n*** All done! ***" + color.END)
+    print(color.BOLD + color.GREEN + "\n*** Selesai! ***" + color.END)
     save_location = os.path.abspath(DOWNLOAD_DIRECTORY)
-    print(color.BLUE + "\nRecordings have been saved to: " +
+    print(color.BLUE + "\nRekaman telah disimpan di: " +
           color.UNDERLINE + "{}".format(save_location) + color.END + "\n")
 
 
